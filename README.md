@@ -2,13 +2,12 @@
 
 > Intelligent serverless cost monitoring that catches billing surprises before they catch you
 
-Stop getting surprised by unexpected AWS bills. This system uses statistical anomaly detection to automatically identify unusual spending patterns and alert you with detailed root cause analysis—all for less than the cost of a coffee per month.
+Stop getting surprised by unexpected AWS bills. This system uses statistical anomaly detection to automatically identify unusual spending patterns and alert you with detailed root cause analysis. All for less than the cost of a coffee per month.
 
 ## Why This Matters
 
-You wake up to an AWS bill that's 3x higher than expected. What happened? Which service spiked? When did it start?
-
-**This project answers those questions automatically—every single day.**
+Ever since I've gotten hired as an AI Solutions Architect, I've seen that our small business clients have received AWS bills 3x HIGHER THAN EXPECTED! This personal project was my deep dive into cost anomaly tracking. 
+**This project answers questions like, what happened? What service spiked? Everyday.**
 
 ## What Makes This Different
 
@@ -36,7 +35,7 @@ When an anomaly is detected, you don't just get "Your bill is high." You get:
 No servers to patch. No databases to manage. No monitoring tools to monitor. It just runs—daily, reliably, automatically.
 
 ### 4. Production-Grade Architecture
-This isn't a toy project. It includes:
+This project includes:
 - Fault-tolerant error handling
 - CloudWatch alarms for self-monitoring
 - Encrypted S3 storage with lifecycle policies
@@ -332,5 +331,6 @@ This isn't just a demo project—it's production-ready code that could save comp
 - Automated reporting for FinOps teams
 
 ---
+
 
 **Built with:** AWS Lambda | Python | CloudFormation | Statistical Analysis | FinOps Best Practices
