@@ -1,0 +1,220 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'AWS Cost Anomaly Detection System - Serverless FinOps'
+
+Parameters:
+  EmailAddress:
+    Type: String
+    Description: Email address to receive anomaly alerts
+    AllowedPattern: '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+  
+  LookbackDays:
+    Type: Number
+    Default: 30
+    MinValue: 7
+    MaxValue: 90
+    Description: Number of days to analyze for anomaly detection
+  
+  AnomalyThreshold:
+    Type: Number
+    Default: 3.0
+    MinValue: 1.5
+    MaxValue: 5.0
+    Description: Z-score threshold for anomaly detection (higher = less sensitive)
+  
+  ScheduleExpression:
+    Type: String
+    Default: 'cron(0 12 * * ? *)'
+    Description: EventBridge schedule (default = daily at 12:00 UTC)
+
+Resources:
+  # S3 Bucket for storing analysis results
+  CostAnomalyBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'cost-anomaly-${AWS::AccountId}'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldReports
+            Status: Enabled
+            ExpirationInDays: 90
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+
+  # SNS Topic for alerts
+  CostAnomalySNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: cost-anomaly-alerts
+      DisplayName: AWS Cost Anomaly Alerts
+      Subscription:
+        - Endpoint: !Ref EmailAddress
+          Protocol: email
+
+  # IAM Role for Lambda
+  CostAnomalyLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: cost-anomaly-lambda-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: CostExplorerAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'ce:GetCostAndUsage'
+                  - 'ce:GetCostForecast'
+                Resource: '*'
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 's3:PutObject'
+                  - 's3:GetObject'
+                Resource: !Sub '${CostAnomalyBucket.Arn}/*'
+        - PolicyName: SNSPublish
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'sns:Publish'
+                Resource: !Ref CostAnomalySNSTopic
+
+  # Lambda Function
+  CostAnomalyFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: cost-anomaly-detector
+      Runtime: python3.11
+      Handler: lambda_function.lambda_handler
+      Role: !GetAtt CostAnomalyLambdaRole.Arn
+      Timeout: 300
+      MemorySize: 512
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref CostAnomalySNSTopic
+          S3_BUCKET: !Ref CostAnomalyBucket
+          LOOKBACK_DAYS: !Ref LookbackDays
+          ANOMALY_THRESHOLD: !Ref AnomalyThreshold
+      Code:
+        ZipFile: |
+          # Placeholder - will be updated with actual code during deployment
+          def lambda_handler(event, context):
+              return {'statusCode': 200, 'body': 'Placeholder'}
+      Description: Detects AWS cost anomalies using statistical analysis
+
+  # CloudWatch Log Group
+  CostAnomalyLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${CostAnomalyFunction}'
+      RetentionInDays: 30
+
+  # EventBridge Rule for scheduled execution
+  CostAnomalyScheduleRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: cost-anomaly-schedule
+      Description: Triggers cost anomaly detection on schedule
+      ScheduleExpression: !Ref ScheduleExpression
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt CostAnomalyFunction.Arn
+          Id: CostAnomalyTarget
+
+  # Permission for EventBridge to invoke Lambda
+  CostAnomalyInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref CostAnomalyFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt CostAnomalyScheduleRule.Arn
+
+  # CloudWatch Alarm for Lambda errors
+  CostAnomalyErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: cost-anomaly-lambda-errors
+      AlarmDescription: Alert when Lambda function errors
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref CostAnomalyFunction
+      AlarmActions:
+        - !Ref CostAnomalySNSTopic
+      TreatMissingData: notBreaching
+
+  # CloudWatch Alarm for Lambda throttles
+  CostAnomalyThrottleAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: cost-anomaly-lambda-throttles
+      AlarmDescription: Alert when Lambda function is throttled
+      MetricName: Throttles
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref CostAnomalyFunction
+      AlarmActions:
+        - !Ref CostAnomalySNSTopic
+      TreatMissingData: notBreaching
+
+Outputs:
+  LambdaFunctionArn:
+    Description: ARN of the Lambda function
+    Value: !GetAtt CostAnomalyFunction.Arn
+    Export:
+      Name: CostAnomalyFunctionArn
+  
+  SNSTopicArn:
+    Description: ARN of the SNS topic
+    Value: !Ref CostAnomalySNSTopic
+    Export:
+      Name: CostAnomalySNSTopic
+  
+  S3BucketName:
+    Description: Name of the S3 bucket for reports
+    Value: !Ref CostAnomalyBucket
+    Export:
+      Name: CostAnomalyBucket
+  
+  ScheduleRule:
+    Description: EventBridge schedule rule
+    Value: !Ref CostAnomalyScheduleRule
+  
+  DashboardURL:
+    Description: CloudWatch Dashboard URL
+    Value: !Sub 'https://console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#logsV2:log-groups/log-group/$252Faws$252Flambda$252F${CostAnomalyFunction}'
